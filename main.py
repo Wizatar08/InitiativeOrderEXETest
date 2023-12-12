@@ -2,12 +2,19 @@ import PySimpleGUI as gui
 import random
 
 MENU_OPTIONS = ["Add Entity", "Run Combat"]
-ENTITY_MENU_OPTIONS = ["Initiative and Base Stats", "Health", "Spells"]
-LEFT_SIDE_SIZE = (300, 500)
+ENTITY_MENU_OPTIONS = ["Initiative and Base Stats", "Health", "Spells (NPC setting)"]
+DICE_RANGE = [""] + [i for i in range(1, 21)]
+MODIFIER_RANGE = [i for i in range(-10, 11)]
+GENERAL_NUMBER_SCROLL = [""] + [i for i in range(0, 1001)]
+SPELL_MAX_LENGTH_TIME_DICT = {"Action": "action", "Second": "second", "Minute": "minute", "Day": "day"}
+SPELL_MAX_LENGTH_TIME_OPTIONS = list(SPELL_MAX_LENGTH_TIME_DICT.keys())
+LEFT_SIDE_SIZE = (350, 500)
+SPELL_LEVEL_RANGE = [i for i in range(0, 10)]
+SPELL_AMOUNT_RANGE = [i for i in range(0, 11)]
 
 class Entity:
 
-    def __init__(self, name, initiative, iModifier = 0, isNPC = False, health = None, trackDeathSavingThrows = False, conditions=[]):
+    def __init__(self, name, initiative, iModifier = 0, isNPC = False, health = None, trackDeathSavingThrows = False, conditions=[], spells=[]):
         self.name = name
         self.initiative = initiative + iModifier
         self.iModifier = iModifier
@@ -15,6 +22,7 @@ class Entity:
         self.health = health
         self.trackDeathSavingThrows = trackDeathSavingThrows
         self.conditions = conditions
+        self.spells = spells
 
         self.removable = False
 
@@ -23,6 +31,27 @@ class Entity:
     
     def forListboxString(self):
         return [f"[{self.initiative:02d} ({self.iModifier:+2d})]", f"[{'NPC' if self.isNPC else 'Player'}] {self.name}", "" if self.health == None else self.health, self.trackDeathSavingThrows]
+    
+class Spell:
+
+    def __init__(self, name, minLevel, concentration = False, time = 0, timeType = "action"):
+        self.name = name
+        self.minLevel = minLevel
+        self.concentration = concentration
+        self.time = int(time) if int(time) > 0 else None
+        self.timeType = timeType
+
+    def makePlural(self, value, word):
+        if value != 1:
+            return word + "s"
+        return word
+
+    def forTableString(self):
+        if self.time == None:
+            s = "Instantaneous"
+        else:
+            s = f"{self.time} {self.makePlural(self.time, self.timeType)}"
+        return [self.name, self.minLevel, "Yes" if self.concentration else "No", s]
 
 # TEST METHODS
 
@@ -32,19 +61,19 @@ def isInt(inp):
     return False
 
 def isPositiveInt(inp):
-    if isInt(inp) and int(inp) > 0:
+    if isInt(str(inp)) and int(inp) > 0:
         return True
     return False
 
-def setOptionalIntParam(inp):
-    if inp.replace("-", "").isdigit():
-        return int(inp)
+def setZeroInt(inp):
+    if str(inp).replace("-", "").isdigit():
+        return inp
     return 0
 
-def testIsIntOptional(inp):
-    if isInt(inp) or inp == "":
+def numberOrBlank(inp):
+    if inp == "" or isInt(str(inp)):
         return True
-    return 00
+    return False
 
 # RUN
 
@@ -81,34 +110,42 @@ def setUp():
     # -----------------------
 
     initiativeMenu = [
+        [gui.Checkbox("Is NPC?", key="-NPC_CHECK-")],
         [gui.Text("Enter name"), gui.Input(size = (25, 1), key="-ADD_ENTITY_NAME-")],
-        [gui.Text("Enter initiative + modifier")],
+        [gui.Text("Enter initiative + modifier"), gui.Spin(DICE_RANGE, initial_value="", size = (5, 1), key="-ADD_ENTITY_BASE_INIT-"), gui.Text("+", pad=(0, 0)), gui.Spin(MODIFIER_RANGE, initial_value="", size = (5, 1), key="-ADD_ENTITY_MOD_INIT-")],
         [gui.Text("First box is base roll, second box is modifier.", pad=(5, 0), text_color="grey80")],
         [gui.Text("Leave first box blank for random base roll.", pad=(5, 0), text_color="grey80")],
-        [gui.Text("Leave second box blank for +0 modifier.", pad=(5, 0), text_color="grey80")],
-        [gui.Input(size = (10, 1), key="-ADD_ENTITY_BASE_INIT-"), gui.Input(size = (10, 1), key="-ADD_ENTITY_MOD_INIT-")],
-        [gui.Checkbox("Is NPC?", key="-NPC_CHECK-")],
+        [gui.Text("Leave second box blank for +0 modifier.", pad=(5, 0), text_color="grey80")]
     ]
 
     healthMenu = [
-        [gui.Text("HP"), gui.Input(size=(10, 1), key="-NPC_HEALTH-")],
+        [gui.Text("HP"), gui.Spin(GENERAL_NUMBER_SCROLL, initial_value="", size=(10, 1), key="-NPC_HEALTH-")],
+        [gui.Text("Leave health blank to not track", text_color="grey80")],
         [gui.HorizontalSeparator()],
         [gui.Checkbox("Track death saving throws", key="-NPC_DEATH_SAVING_THROWS-", enable_events=True, pad=(5, 0))],
         [gui.Checkbox("Do not remove at 0HP", key="-NPC_AT_DEATH_TRACK-", pad=(5, 0))],
-        [gui.Text("Conditions: "), gui.Input(size = (18, 1), key="-CONDITIONS_TEXT-"), gui.Button("+", size=(2,1), key="-CONDITIONS_ADD-"), gui.Button("-", size=(2,1), key="-CONDITIONS_REMOVE-")],
+        [gui.Text("Initial conditions: "), gui.Input(size = (18, 1), key="-CONDITIONS_TEXT-"), gui.Button("+", size=(2,1), key="-CONDITIONS_ADD-"), gui.Button("-", size=(2,1), key="-CONDITIONS_REMOVE-")],
             [gui.Listbox([], size=(38, 5), key="-CONDITIONS_LISTBOX-")]
     ]
 
     spellsMenu = [
-        [gui.Text("0th: "), gui.Input(size=[2, 1], key="-ADD_SPELLS_0-"), gui.Text("1st: "), gui.Input(size=[2, 1], key="-ADD_SPELLS_1-"), gui.Text("2nd: "), gui.Input(size=[2, 1], key="-ADD_SPELLS_2-"), gui.Text("3rd: "), gui.Input(size=[2, 1], key="-ADD_SPELLS_3-")],
-        [gui.Text("4th: "), gui.Input(size=[2, 1], key="-ADD_SPELLS_4-"), gui.Text("5th: "), gui.Input(size=[2, 1], key="-ADD_SPELLS_5-"), gui.Text("6th: "), gui.Input(size=[2, 1], key="-ADD_SPELLS_6-"), gui.Text("7th: "), gui.Input(size=[2, 1], key="-ADD_SPELLS_7-")],
-        [gui.Text("8th: "), gui.Input(size=[2, 1], key="-ADD_SPELLS_8-"), gui.Text("9th: "), gui.Input(size=[2, 1], key="-ADD_SPELLS_9-")]
+        [gui.Text("0th:"), gui.Spin(SPELL_AMOUNT_RANGE, initial_value=0, readonly=True, size=[3, 1], key="-ADD_SPELLS_0-"), gui.Text("1st:"), gui.Spin(SPELL_AMOUNT_RANGE, initial_value=0, readonly=True, size=[3, 1], key="-ADD_SPELLS_1-"), gui.Text("2nd:"), gui.Spin(SPELL_AMOUNT_RANGE, initial_value=0, readonly=True, size=[3, 1], key="-ADD_SPELLS_2-"), gui.Text("3rd:"), gui.Spin(SPELL_AMOUNT_RANGE, initial_value=0, readonly=True, size=[3, 1], key="-ADD_SPELLS_3-")],
+        [gui.Text("4th:"), gui.Spin(SPELL_AMOUNT_RANGE, initial_value=0, readonly=True, size=[3, 1], key="-ADD_SPELLS_4-"), gui.Text("5th:"), gui.Spin(SPELL_AMOUNT_RANGE, initial_value=0, readonly=True, size=[3, 1], key="-ADD_SPELLS_5-"), gui.Text("6th:"), gui.Spin(SPELL_AMOUNT_RANGE, initial_value=0, readonly=True, size=[3, 1], key="-ADD_SPELLS_6-"), gui.Text("7th:"), gui.Spin(SPELL_AMOUNT_RANGE, initial_value=0, readonly=True, size=[3, 1], key="-ADD_SPELLS_7-")],
+        [gui.Text("8th:"), gui.Spin(SPELL_AMOUNT_RANGE, initial_value=0, readonly=True, size=[3, 1], key="-ADD_SPELLS_8-"), gui.Text("9th:"), gui.Spin(SPELL_AMOUNT_RANGE, initial_value=0, readonly=True, size=[3, 1], key="-ADD_SPELLS_9-")],
+        [gui.HorizontalSeparator()],
+        [gui.Text("Spell:"), gui.Input(size=[20, 1], key="-SPELL_NAME-"), gui.Text("Level:"), gui.Spin(SPELL_LEVEL_RANGE, initial_value=0, readonly=True, size=[2, 1], key="-SPELL_LEVEL_INPUT-")],
+        [gui.Checkbox("Has Duration?", key="-DURATION_CHECK-", enable_events=True), collapsable([[gui.Spin(GENERAL_NUMBER_SCROLL, initial_value=0, size=[4,1], key="-DURATION_TIME_INPUT-"),
+            gui.Combo(SPELL_MAX_LENGTH_TIME_OPTIONS, default_value=SPELL_MAX_LENGTH_TIME_OPTIONS[0], size=[10,1], key="-CONCENTRATION_TIME_TYPE-", readonly=True)]]
+            , "-SPELL_TIME_MENU-", visible=False)],
+        [gui.Checkbox("Requires Concentration?", key="-CONCENTRATION_CHECK-")],
+        [gui.Button("ADD", key="-ADD_SPELL_BUTTON-"), gui.Button("REMOVE", key="-REMOVE_SPELL_BUTTON-")],
+        [gui.Table([[]], headings=["Name", "Lvl", "Conc", "Duration"], justification="left", auto_size_columns=False, col_widths=[17, 4, 4, 10], enable_click_events=True, key="-SPELLS_TABLE-")]
     ]
 
 
     addEntityLayout = [
             [gui.Combo(ENTITY_MENU_OPTIONS, readonly=True, default_value=ENTITY_MENU_OPTIONS[0], size=(23, 1), key="-ADD_ENTITY_MENU_COMBO-", enable_events=True)],
-            [gui.Button("Add to initiative order", key="-ADD_TO_INIT-")],
+            [gui.Button("Add to initiative order", key="-ADD_TO_INIT-"), gui.Checkbox("Clear after adding", key="-CLEAR_AFTER_ADDING_CHECK-")],
             [gui.HorizontalSeparator()],
             [collapsable(initiativeMenu, "-ENTITY_INITIATIVE_MENU-")],
             [collapsable(healthMenu, "-ENTITY_HEALTH_MENU-", visible=False)],
@@ -148,6 +185,7 @@ def run(window):
 
     # SET UP VARIABLES
     conditions = []
+    spells = []
 
     while not flag:
         event, values = window.read()
@@ -172,15 +210,36 @@ def run(window):
 
 
         # INITIAITIVE:
-        elif event == "-ADD_TO_INIT-" and values["-ADD_ENTITY_NAME-"] != "" and testIsIntOptional(values["-ADD_ENTITY_BASE_INIT-"]) and testIsIntOptional(values["-ADD_ENTITY_MOD_INIT-"]):
-            entities = addEntity(window, entities, name=values["-ADD_ENTITY_NAME-"], bI=values["-ADD_ENTITY_BASE_INIT-"], iM=values["-ADD_ENTITY_MOD_INIT-"], conditions=conditions, isNPC= values["-NPC_CHECK-"], health=values["-NPC_HEALTH-"], dst=values["-NPC_DEATH_SAVING_THROWS-"])
+        elif event == "-ADD_TO_INIT-" and values["-ADD_ENTITY_NAME-"] != "" and numberOrBlank(values["-ADD_ENTITY_BASE_INIT-"]) and numberOrBlank(values["-ADD_ENTITY_MOD_INIT-"]):
+            entities = addEntity(window, entities, name=values["-ADD_ENTITY_NAME-"], bI=values["-ADD_ENTITY_BASE_INIT-"], iM=values["-ADD_ENTITY_MOD_INIT-"], conditions=conditions, isNPC= values["-NPC_CHECK-"], health=values["-NPC_HEALTH-"], dst=values["-NPC_DEATH_SAVING_THROWS-"], spells=spells)
+            if values["-CLEAR_AFTER_ADDING_CHECK-"]:
+                clearAddEntityInputs(window)
+                conditions = []
         elif event == "-NPC_DEATH_SAVING_THROWS-":
             window["-NPC_AT_DEATH_TRACK-"].update(text = "Do not remove on death" if values[event] else "Do not remove at 0HP")
 
-        # SPELLS
+        # HEALTH
         elif event == "-CONDITIONS_ADD-":
             conditions += [values["-CONDITIONS_TEXT-"]]
             window["-CONDITIONS_LISTBOX-"].update(conditions)
+
+        elif event == "-DURATION_CHECK-":
+            window["-SPELL_TIME_MENU-"].update(visible=values["-DURATION_CHECK-"])
+
+        # SPELLS
+        elif event == "-ADD_SPELL_BUTTON-":
+            s = Spell(values["-SPELL_NAME-"], values["-SPELL_LEVEL_INPUT-"], values["-CONCENTRATION_CHECK-"], setZeroInt(values["-DURATION_TIME_INPUT-"]) if values["-DURATION_CHECK-"] else 0, values["-CONCENTRATION_TIME_TYPE-"])
+            spells.append(s)
+            window["-SPELLS_TABLE-"].update([spells[i].forTableString() for i in range(len(spells))])
+            window["-SPELL_NAME-"].update("")
+            window["-SPELL_LEVEL_INPUT-"].update(0)
+            window["-CONCENTRATION_CHECK-"].update(False)
+            window["-DURATION_CHECK-"].update(False)
+            window["-DURATION_TIME_INPUT-"].update(0)
+            window["-CONCENTRATION_TIME_TYPE-"].update(SPELL_MAX_LENGTH_TIME_OPTIONS[0])
+        elif event == "-REMOVE_SPELL_BUTTON-" and len(values["-SPELLS_TABLE-"]) > 0:
+            spells.pop(values["-SPELLS_TABLE-"][0])
+            
 
         # MANAGE COMBAT
         elif event == "-START_COMBAT_BUTTON-":
@@ -189,9 +248,9 @@ def run(window):
             currEntityIndex = 0
             currSelectedEntityIndex = 0
             window["-NAMEBOX-"].update(row_colors=[[currEntityIndex,'green']], select_rows=[currSelectedEntityIndex])
+
         
         elif event == "-MENU_COMBO-":
-            print(event)
             if values["-MENU_COMBO-"] == MENU_OPTIONS[0]:
                 window["--ADD_ENTITY_LAYOUT--"].update(visible=True)
                 window["--RUN_COMBAT--"].update(visible=False)
@@ -206,16 +265,15 @@ def run(window):
             else:
                 window["-START_COMBAT_ERROR-"].update(visible=True)
                 window["-START_COMBAT_CONFIRM-"].update(visible=False)
-            
-        #print(event, values)
 
     window.close()
 
-def addEntity(window, en, name, bI, iM, conditions, isNPC, health, dst):
-    e = Entity(name, random.randint(1, 20) if bI == "" else int(bI), iModifier = setOptionalIntParam(iM), conditions=conditions,
+def addEntity(window, en, name, bI, iM, conditions, isNPC, health, dst, spells):
+    e = Entity(name, random.randint(1, 20) if bI == "" else int(bI), iModifier = setZeroInt(iM), conditions=conditions,
         isNPC = isNPC,
-        health = int(health) if isPositiveInt(health) else None,
+        health = health if isPositiveInt(health) else None,
         trackDeathSavingThrows = dst,
+        spells=spells
     )
     en.append(e)
     en = order(en)
@@ -223,6 +281,17 @@ def addEntity(window, en, name, bI, iM, conditions, isNPC, health, dst):
         len(getData(en)[0])
     )])
     return en
+
+def clearAddEntityInputs(w):
+    w["-ADD_ENTITY_NAME-"].update("")
+    w["-ADD_ENTITY_BASE_INIT-"].update("")
+    w["-ADD_ENTITY_MOD_INIT-"].update("")
+    w["-NPC_HEALTH-"].update("")
+    w["-CONDITIONS_LISTBOX-"].update([])
+    w["-CONDITIONS_TEXT-"].update("")
+    for i in range(10):
+        w[f"-ADD_SPELLS_{i}-"].update(0)
+    w["-SPELL_LEVEL_INPUT-"].update("")
 
 def order(entities):
     i = 1
